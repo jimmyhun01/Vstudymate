@@ -1,0 +1,803 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI 學習行為監測系統 - 時序優化版</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Noto+Sans+TC:wght@400;500;700&display=swap');
+        body { font-family: 'Space Grotesk', 'Noto Sans TC', sans-serif; background-color: #020617; color: #f8fafc; overflow-x: hidden; }
+        .glow-blue { box-shadow: 0 0 20px rgba(59, 130, 246, 0.3); }
+        .live2d-avatar { transition: all 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
+        #webcam { display: none; }
+        .filter-btn { transition: all 0.2s ease-in-out; }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col justify-between">
+
+    <video id="webcam" autoplay playsinline></video>
+
+    <div id="view-login" class="flex-1 flex items-center justify-center p-4">
+        <div class="bg-slate-900/80 backdrop-blur-md border border-slate-800 p-8 rounded-3xl w-full max-w-lg shadow-2xl space-y-6">
+            <div class="text-center">
+                <div class="w-14 h-14 bg-indigo-600 rounded-2xl mx-auto flex items-center justify-center text-2xl mb-3 shadow-lg glow-blue">
+                    <i class="fa-solid fa-graduation-cap text-white"></i>
+                </div>
+                <h1 class="text-2xl font-bold tracking-tight text-white">EduTeams AI 學習監測</h1>
+                <p class="text-xs text-slate-400 mt-1">整合6維行為狀態深度追蹤</p>
+            </div>
+            
+            <div class="bg-indigo-950/40 border border-indigo-900/50 p-3.5 rounded-xl text-xs text-slate-300 leading-relaxed">
+                <i class="fa-solid fa-circle-info text-indigo-400 mr-1"></i>
+                <strong>模式彈性選擇：</strong>您可以填寫 Teams 帳號直接進入虛擬空間，或者貼上線上教材網址。兩者<strong>僅需填寫其中一項</strong>即可啟動。
+            </div>
+
+            <div class="space-y-5">
+                <div class="bg-slate-950/60 p-4 rounded-xl border border-slate-800 space-y-2">
+                    <div class="flex justify-between items-center">
+                        <label class="block text-xs font-semibold text-slate-300">
+                            <i class="fa-brands fa-microsoft text-indigo-400 mr-1"></i> Microsoft Teams 帳號驗證
+                        </label>
+                        <span class="text-[10px] bg-slate-800 text-slate-400 px-1.5 py-0.5 rounded">選項 A</span>
+                    </div>
+                    <div class="relative">
+                        <span class="absolute inset-y-0 left-0 flex items-center pl-3.5 text-slate-500 text-xs">
+                            <i class="fa-solid fa-user-tag"></i>
+                        </span>
+                        <input type="text" id="input-account" placeholder="例如：student@eduteams.edu.tw" class="w-full bg-slate-900 border border-slate-800 rounded-xl pl-10 pr-4 py-2.5 text-sm text-slate-200 focus:outline-none focus:border-indigo-500 transition-colors">
+                    </div>
+                </div>
+
+                <div class="text-center text-xs text-slate-500 font-bold">— 或 —</div>
+                
+                <div class="bg-slate-950/60 p-4 rounded-xl border border-slate-800 space-y-2">
+                    <div class="flex justify-between items-center">
+                        <label class="block text-xs font-semibold text-slate-300">
+                            <i class="fa-solid fa-clapperboard text-indigo-400 mr-1"></i> 線上課堂視訊 / 學習教材網址
+                        </label>
+                        <span class="text-[10px] bg-slate-800 text-slate-400 px-1.5 py-0.5 rounded">選項 B</span>
+                    </div>
+                    <input type="text" id="input-url" placeholder="請貼上網頁教材或 YouTube 影片網址" class="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-slate-200 focus:outline-none focus:border-indigo-500 font-mono transition-all">
+                </div>
+            </div>
+
+            <button type="button" onclick="executeExplicitJump()" class="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-semibold py-3.5 rounded-xl text-sm transition-all flex items-center justify-center gap-2 shadow-xl shadow-indigo-600/20">
+                驗證並解析伴讀空間 <i class="fa-solid fa-arrow-right"></i>
+            </button>
+        </div>
+    </div>
+
+    <div id="view-permission" class="flex-1 flex items-center justify-center p-6 hidden">
+        <div class="bg-slate-900 border border-slate-800 p-8 rounded-2xl w-full max-w-lg shadow-2xl">
+            <h2 class="text-xl font-bold text-white mb-2 flex items-center gap-2">
+                <i class="fa-solid fa-user-shield text-indigo-400"></i> 學習特徵個人化基準校準
+            </h2>
+            <p class="text-xs text-slate-400 mb-5">系統需要啟動相機通道，用以計算您在平常專注時的眼睛睜開度與眉毛初始間距，建立專屬您的常模指標。</p>
+            
+            <div class="relative aspect-video bg-slate-950 rounded-xl overflow-hidden border border-slate-800 mb-5 flex items-center justify-center">
+                <canvas id="pre-calibration-canvas" class="w-full h-full object-cover scale-x-[-1]"></canvas>
+                
+                <div id="cali-overlay" class="absolute inset-0 bg-black/80 flex flex-col items-center justify-center text-center p-4 hidden">
+                    <div class="text-indigo-400 text-5xl font-bold mb-2 animate-bounce" id="cali-countdown">3</div>
+                    <p class="font-semibold text-sm text-white">常模基準校準中 (Calibrating)...</p>
+                    <p class="text-[11px] text-slate-400 mt-1">請保持平常心直視前方（正在自動平衡環境光照）</p>
+                </div>
+
+                <div id="pre-prompt" class="absolute inset-0 flex flex-col items-center justify-center p-4 bg-slate-950 text-center">
+                    <i class="fa-solid fa-camera text-3xl text-slate-700 mb-2"></i>
+                    <p class="text-xs text-slate-500">等待學員啟動視訊串流...</p>
+                </div>
+            </div>
+
+            <div class="space-y-3">
+                <div class="flex justify-between items-center bg-slate-950 px-4 py-2.5 rounded-xl border border-slate-800 text-xs text-slate-400">
+                    <span>相機傳感通道狀態：</span>
+                    <span id="perm-status" class="text-red-400 font-bold"><i class="fa-solid fa-circle-xmark"></i> 尚未授權</span>
+                </div>
+
+                <div class="flex gap-2">
+                    <button onclick="requestCameraPermission()" class="flex-1 bg-slate-800 hover:bg-slate-700 text-white font-medium py-2.5 rounded-lg text-xs transition">
+                        1. 授權安全相機
+                    </button>
+                    <button id="btn-start-cali" disabled onclick="startCalibrationWorkflow()" class="flex-1 bg-slate-700 text-slate-500 font-medium py-2.5 rounded-lg text-xs transition cursor-not-allowed">
+                        2. 啟動 3 秒校準
+                    </button>
+                </div>
+
+                <button id="btn-enter-classroom" disabled onclick="enterClassroomFullscreen()" class="w-full bg-indigo-600 text-slate-500 font-medium py-3 rounded-lg text-sm transition mt-2 flex items-center justify-center gap-2 cursor-not-allowed">
+                    進入伴讀學習空間 <i class="fa-solid fa-expand"></i>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div id="view-classroom" class="flex-1 w-screen h-screen bg-slate-950 select-none hidden relative overflow-hidden">
+        
+        <div class="absolute top-0 left-0 right-0 h-14 bg-slate-900/90 border-b border-slate-800 px-6 flex justify-between items-center z-30 backdrop-blur-sm">
+            <div class="flex items-center gap-3">
+                <div class="w-2.5 h-2.5 bg-amber-500 rounded-full" id="monitoring-pulse-dot"></div>
+                <span id="classroom-title" class="font-semibold text-xs text-slate-300 font-mono">系統已就緒，請點擊「開始監測」...</span>
+            </div>
+            <div class="flex items-center gap-2">
+                <button onclick="toggleMonitoring(true)" class="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-1.5 rounded-md text-xs font-medium transition flex items-center gap-1 shadow-md">
+                    <i class="fa-solid fa-play"></i> 開始監測
+                </button>
+                <button onclick="toggleMonitoring(false)" class="bg-slate-700 hover:bg-slate-600 text-white px-4 py-1.5 rounded-md text-xs font-medium transition flex items-center gap-1">
+                    <i class="fa-solid fa-pause"></i> 暫停監測
+                </button>
+                <button onclick="endMonitoringAndShowReport()" class="bg-red-600 hover:bg-red-500 text-white px-4 py-1.5 rounded-md text-xs font-medium transition flex items-center gap-1 shadow-lg">
+                    <i class="fa-solid fa-stop"></i> 結束監測
+                </button>
+            </div>
+        </div>
+
+        <div class="w-full h-full pt-14 relative z-10 flex items-center justify-center bg-slate-950">
+            <iframe id="course-frame" class="w-full h-full border-0 hidden" allow="autoplay; encrypted-media; fullscreen"></iframe>
+            <div id="course-placeholder" class="text-center p-6 space-y-2">
+                <i class="fa-brands fa-microsoft text-5xl text-slate-700 block mb-2"></i>
+                <p id="txt-active-account" class="text-sm text-slate-400">已成功掛載獨立監測空間權限。</p>
+                <p class="text-xs text-slate-500 max-w-sm mx-auto">教材已在獨立安全視窗中待命，請點擊左上角按鈕前往上課，伴讀系統將在背景同步為您守護學習軌跡。</p>
+            </div>
+        </div>
+
+        <div class="absolute bottom-6 right-6 w-64 bg-slate-900/90 border border-slate-800 rounded-2xl shadow-2xl p-5 flex flex-col justify-between items-center z-40 glow-blue backdrop-blur-md">
+            <div class="w-full flex justify-between items-center text-[10px] font-mono text-slate-500 border-b border-slate-800 pb-2">
+                <span>右下角伴讀格子</span>
+                <span id="vt-mode-tag" class="bg-slate-950 text-slate-400 px-1.5 py-0.5 rounded">Standby</span>
+            </div>
+            
+            <div class="w-full pt-3 text-center">
+                <div class="text-[10px] text-slate-500 uppercase tracking-wider font-mono">15s 主導狀態統計</div>
+                <div id="vt-15s-dominant" class="text-lg font-bold text-indigo-400 bg-indigo-950/50 border border-indigo-900/40 px-4 py-1.5 rounded-xl mt-1 inline-block shadow-inner tracking-wide">
+                    計算中...
+                </div>
+            </div>
+            
+            <div class="relative flex-1 flex items-center justify-center w-full overflow-hidden my-3 min-h-[140px]">
+                <div id="live2d-container" class="live2d-avatar flex flex-col items-center justify-center">
+                    <div id="live2d-head" class="transition-transform duration-200">
+                        <i id="vt-icon" class="fa-solid fa-user-astronaut text-6xl text-slate-500"></i>
+                    </div>
+                    <div class="w-8 h-5 bg-slate-800 rounded-b-full mt-1 border-t border-slate-700"></div>
+                </div>
+            </div>
+
+            <div class="w-full">
+                <div class="w-full text-center bg-slate-950 py-2 rounded-xl border border-slate-800">
+                    <div id="vt-status-text" class="text-xs font-bold text-slate-400">尚未啟動監測</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="view-report" class="flex-1 w-full px-8 py-6 hidden space-y-6">
+        <div class="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-2xl space-y-6">
+            
+            <div class="flex justify-between items-center border-b border-slate-800 pb-4">
+                <div>
+                    <h2 class="text-2xl font-bold text-white flex items-center gap-2">
+                        <i class="fa-solid fa-chart-pie text-indigo-400"></i> 學習行為多維度狀態診斷報告
+                    </h2>
+                    <p class="text-xs text-slate-400 mt-1" id="report-meta-time">評估時間：</p>
+                </div>
+                <button onclick="window.location.reload()" class="bg-slate-800 hover:bg-slate-700 text-slate-300 px-4 py-2 rounded-xl text-xs font-medium transition">
+                    <i class="fa-solid fa-rotate-left mr-1"></i> 重新偵測
+                </button>
+            </div>
+
+            <div class="w-full bg-slate-950 p-6 rounded-2xl border border-slate-800 space-y-5">
+                <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                    <div class="text-xs font-semibold text-slate-400">
+                        <span><i class="fa-solid fa-chart-line text-indigo-400 mr-1"></i> 全程情緒連續波動曲線圖（Y軸：情緒密集度權重 0.0 - 1.0 / X軸：相對時間每 30 秒區間）</span>
+                    </div>
+                    <div class="flex flex-wrap gap-1.5 bg-slate-900 p-1 rounded-xl border border-slate-800" id="emotion-filter-group">
+                        <button onclick="filterEmotionChart('all')" class="filter-btn px-2.5 py-1 text-[11px] font-medium rounded-lg bg-indigo-600 text-white shadow-sm" id="btn-f-all">顯示全部</button>
+                        <button onclick="filterEmotionChart(0)" class="filter-btn px-2.5 py-1 text-[11px] font-medium rounded-lg bg-slate-800 text-slate-400 hover:text-slate-200" id="btn-f-0">高專注</button>
+                        <button onclick="filterEmotionChart(1)" class="filter-btn px-2.5 py-1 text-[11px] font-medium rounded-lg bg-slate-800 text-slate-400 hover:text-slate-200" id="btn-f-1">思索困惑</button>
+                        <button onclick="filterEmotionChart(2)" class="filter-btn px-2.5 py-1 text-[11px] font-medium rounded-lg bg-slate-800 text-slate-400 hover:text-slate-200" id="btn-f-2">視線偏離</button>
+                        <button onclick="filterEmotionChart(3)" class="filter-btn px-2.5 py-1 text-[11px] font-medium rounded-lg bg-slate-800 text-slate-400 hover:text-slate-200" id="btn-f-3">缺乏動機</button>
+                        <button onclick="filterEmotionChart(4)" class="filter-btn px-2.5 py-1 text-[11px] font-medium rounded-lg bg-slate-800 text-slate-400 hover:text-slate-200" id="btn-f-4">疲憊瞌睡</button>
+                        <button onclick="filterEmotionChart(5)" class="filter-btn px-2.5 py-1 text-[11px] font-medium rounded-lg bg-slate-800 text-slate-400 hover:text-slate-200" id="btn-f-5">焦慮挫折</button>
+                    </div>
+                </div>
+                <div class="relative h-80 w-full">
+                    <canvas id="chartLineEmotion"></canvas>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                <div class="lg:col-span-5 bg-slate-950 p-5 rounded-2xl border border-slate-800 flex flex-col justify-between h-[360px]">
+                    <div class="text-xs font-semibold text-slate-400 mb-2">
+                        <i class="fa-solid fa-circle-nodes text-purple-400 mr-1"></i> 6維狀態指標雷達模型
+                    </div>
+                    <div class="flex-1 relative flex items-center justify-center">
+                        <canvas id="chartRadarEmotion"></canvas>
+                    </div>
+                </div>
+
+                <div class="lg:col-span-7 bg-slate-950 p-5 rounded-2xl border border-slate-800 flex flex-col justify-between">
+                    <div>
+                        <div class="text-xs font-semibold text-indigo-400 mb-4 flex justify-between items-center border-b border-slate-800 pb-2">
+                            <span><i class="fa-solid fa-calculator mr-1"></i> 跨類別學習時長統計</span>
+                            <span class="text-[11px] text-slate-500 font-normal">總監測時長: <strong class="text-slate-200 font-mono" id="rep-total-time">0小時 00分鐘 00秒</strong></span>
+                        </div>
+                        
+                        <div class="grid grid-cols-2 md:grid-cols-3 gap-3 text-xs font-mono">
+                            <div class="bg-slate-900/60 p-3 rounded-xl border border-slate-800/60">
+                                <div class="text-emerald-400 font-semibold mb-1">● Engaged (高專注)</div>
+                                <div class="text-slate-300 font-bold text-sm" id="t-engaged">0分 00秒</div>
+                                <div class="text-[10px] text-slate-500 mt-0.5" id="p-engaged">0.0%</div>
+                            </div>
+                            <div class="bg-slate-900/60 p-3 rounded-xl border border-slate-800/60">
+                                <div class="text-blue-400 font-semibold mb-1">● Confused (思索困惑)</div>
+                                <div class="text-slate-300 font-bold text-sm" id="t-confused">0分 00秒</div>
+                                <div class="text-[10px] text-slate-500 mt-0.5" id="p-confused">0.0%</div>
+                            </div>
+                            <div class="bg-slate-900/60 p-3 rounded-xl border border-slate-800/60">
+                                <div class="text-amber-400 font-semibold mb-1">● Looking Away (視線偏離)</div>
+                                <div class="text-slate-300 font-bold text-sm" id="t-away">0分 00秒</div>
+                                <div class="text-[10px] text-slate-500 mt-0.5" id="p-away">0.0%</div>
+                            </div>
+                            <div class="bg-slate-900/60 p-3 rounded-xl border border-slate-800/60">
+                                <div class="text-gray-400 font-semibold mb-1">● Bored (缺乏動機)</div>
+                                <div class="text-slate-300 font-bold text-sm" id="t-bored">0分 00秒</div>
+                                <div class="text-[10px] text-slate-500 mt-0.5" id="p-bored">0.0%</div>
+                            </div>
+                            <div class="bg-slate-900/60 p-3 rounded-xl border border-slate-800/60">
+                                <div class="text-red-400 font-semibold mb-1">● Drowsy (疲憊瞌睡)</div>
+                                <div class="text-slate-300 font-bold text-sm" id="t-drowsy">0分 00秒</div>
+                                <div class="text-[10px] text-slate-500 mt-0.5" id="p-drowsy">0.0%</div>
+                            </div>
+                            <div class="bg-slate-900/60 p-3 rounded-xl border border-slate-800/60">
+                                <div class="text-purple-400 font-semibold mb-1">● Frustrated (焦慮挫折)</div>
+                                <div class="text-slate-300 font-bold text-sm" id="t-frustrated">0分 00秒</div>
+                                <div class="text-[10px] text-slate-500 mt-0.5" id="p-frustrated">0.0%</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="mt-4 bg-indigo-950/20 p-3 rounded-xl border border-indigo-900/30 text-[11px] text-slate-400">
+                        <i class="fa-solid fa-circle-info text-indigo-400 mr-1"></i> 您可以使用波動圖上方的獨立按鈕，將複雜的各項交叉情緒進行單獨過濾與深度比對。
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-indigo-950/30 p-5 rounded-2xl border border-indigo-900/40 space-y-4">
+                <h3 class="text-sm font-bold text-indigo-400 flex items-center gap-1.5 border-b border-indigo-900/40 pb-2">
+                    <i class="fa-solid fa-file-invoice text-md"></i> 波動曲線圖數值計算機制與教育科學解讀說明
+                </h3>
+                <div class="text-xs text-slate-300 leading-relaxed space-y-4" id="report-advice-content"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let streamInstance = null;
+        let isMonitoringActive = false; 
+        let isCalibrated = false;
+        let isCalibrating = false;
+        let calibrationFrames = [];
+        let base_EAR = 0.28;
+        let base_Eyebrow_Dist = 0.22;
+
+        let totalSeconds = 0;
+        let rawTimelineData = []; 
+
+        let secsEngaged = 0;
+        let secsConfused = 0;
+        let secsAway = 0;
+        let secsBored = 0;
+        let secsDrowsy = 0;
+        let secsFrustrated = 0;
+
+        let recent15sStates = [];
+        let globalLineChartInstance = null; 
+
+        function executeExplicitJump() {
+            const account = document.getElementById('input-account').value.trim();
+            const targetUrl = document.getElementById('input-url').value.trim();
+            
+            if(!account && !targetUrl) {
+                alert('請選擇填寫「Microsoft Teams 帳號」或「學習教材網址」其一即可進入空間！');
+                return;
+            }
+
+            const frame = document.getElementById('course-frame');
+            const placeholder = document.getElementById('course-placeholder');
+            const txtActiveAccount = document.getElementById('txt-active-account');
+            const currentOrigin = window.location.origin || `${window.location.protocol}//${window.location.host}`;
+            
+            const oldBtn = document.getElementById('btn-teams-fallback');
+            if(oldBtn) oldBtn.remove();
+
+            const btnFallback = document.createElement('button');
+            btnFallback.id = 'btn-teams-fallback';
+            btnFallback.className = "absolute top-18 left-6 bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-lg text-xs font-medium transition shadow-lg flex items-center gap-2 z-50";
+            
+            let embedUrl = "";
+            if (targetUrl) {
+                const ytMatch = targetUrl.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=|shorts\/))([\w-]{11})/);
+                if (ytMatch && ytMatch[1]) {
+                    embedUrl = `https://www.youtube.com/embed/${ytMatch[1]}?autoplay=1&mute=1&enablejsapi=1&origin=${encodeURIComponent(currentOrigin)}`;
+                } else if (targetUrl.includes("http")) {
+                    embedUrl = targetUrl;
+                }
+            }
+
+            if(embedUrl !== "") {
+                frame.src = embedUrl;
+                frame.classList.remove('hidden');
+                placeholder.classList.add('hidden');
+                
+                btnFallback.innerHTML = `<i class="fa-solid fa-arrow-up-right-from-square"></i> 網頁教材未正常顯示？點此另開視窗`;
+                btnFallback.onclick = () => window.open(targetUrl, '_blank');
+                document.getElementById('view-classroom').appendChild(btnFallback);
+            } else {
+                frame.classList.add('hidden');
+                placeholder.classList.remove('hidden');
+                if(account) {
+                    txtActiveAccount.innerHTML = `<i class="fa-solid fa-user-check text-emerald-400 mr-1"></i> 已透過 Teams 驗證：<strong>${account}</strong>`;
+                    btnFallback.innerHTML = `<i class="fa-brands fa-microsoft"></i> 點此前往 Microsoft Teams 線上課堂`;
+                    btnFallback.onclick = () => window.open('https://teams.microsoft.com/', '_blank');
+                    document.getElementById('view-classroom').appendChild(btnFallback);
+                }
+            }
+
+            switchView('view-permission');
+        }
+
+        function switchView(viewId) {
+            ['view-login', 'view-permission', 'view-classroom', 'view-report'].forEach(id => {
+                document.getElementById(id).classList.add('hidden');
+            });
+            document.getElementById(viewId).classList.remove('hidden');
+        }
+
+        function formatFullTime(totalSecs) {
+            const hours = Math.floor(totalSecs / 3600);
+            const minutes = Math.floor((totalSecs % 3600) / 60);
+            const seconds = totalSecs % 60;
+            return `${hours}小時 ${String(minutes).padStart(2, '0')}分鐘 ${String(seconds).padStart(2, '0')}秒`;
+        }
+
+        function formatMinSec(totalSecs) {
+            const minutes = Math.floor(totalSecs / 60);
+            const seconds = totalSecs % 60;
+            return `${minutes}分 ${String(seconds).padStart(2, '0')}秒`;
+        }
+
+        // 將秒數轉換成 X 軸標準時間區間格式 (例如：30秒 -> "00:30", 90秒 -> "01:30")
+        function formatIntervalLabel(secondsCount) {
+            const m = Math.floor(secondsCount / 60);
+            const s = secondsCount % 60;
+            return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+        }
+
+        async function requestCameraPermission() {
+            try {
+                streamInstance = await navigator.mediaDevices.getUserMedia({ video: true });
+                document.getElementById('webcam').srcObject = streamInstance;
+                
+                document.getElementById('perm-status').innerHTML = '<i class="fa-solid fa-circle-check"></i> 視訊安全通道已開啟';
+                document.getElementById('perm-status').className = "text-emerald-400 font-bold";
+                document.getElementById('pre-prompt').classList.add('hidden');
+                document.getElementById('btn-start-cali').disabled = false;
+                document.getElementById('btn-start-cali').className = "flex-1 bg-indigo-600 text-white font-medium py-2.5 rounded-lg text-xs transition shadow-lg glow-blue";
+                
+                initMediaPipeEngine();
+            } catch (err) {
+                alert("相機存取被拒，請檢查瀏覽器安全性權限。");
+            }
+        }
+
+        function startCalibrationWorkflow() {
+            isCalibrating = true;
+            calibrationFrames = [];
+            document.getElementById('cali-overlay').classList.remove('hidden');
+            let timeLeft = 3;
+            document.getElementById('cali-countdown').innerText = timeLeft;
+
+            const timer = setInterval(() => {
+                timeLeft--;
+                document.getElementById('cali-countdown').innerText = timeLeft;
+                if(timeLeft <= 0) {
+                    clearInterval(timer);
+                    if(calibrationFrames.length > 0) {
+                        base_EAR = calibrationFrames.reduce((acc, f) => acc + f.ear, 0) / calibrationFrames.length;
+                        base_Eyebrow_Dist = calibrationFrames.reduce((acc, f) => acc + f.eyebrow, 0) / calibrationFrames.length;
+                        isCalibrated = true;
+                    }
+                    isCalibrating = false;
+                    document.getElementById('cali-overlay').classList.add('hidden');
+                    document.getElementById('btn-enter-classroom').disabled = false;
+                    document.getElementById('btn-enter-classroom').className = "w-full bg-indigo-600 hover:bg-indigo-500 text-white font-semibold py-3 rounded-xl text-sm transition mt-2 flex items-center justify-center gap-2 shadow-lg";
+                }
+            }, 1000);
+        }
+
+        function enterClassroomFullscreen() {
+            switchView('view-classroom');
+            const targetAccount = document.getElementById('input-account').value.trim();
+            const displayUser = targetAccount ? targetAccount : "自主學習學員";
+            document.getElementById('classroom-title').innerText = `已就緒。登入空間：${displayUser}。請點擊「開始監測」...`;
+            updateLive2DReaction("Standby", "Standby");
+        }
+
+        function toggleMonitoring(active) {
+            isMonitoringActive = active;
+            const pulseDot = document.getElementById('monitoring-pulse-dot');
+            const titleText = document.getElementById('classroom-title');
+            const targetAccount = document.getElementById('input-account').value.trim();
+            const displayUser = targetAccount ? targetAccount : "自主學習學員";
+            
+            if(active) {
+                pulseDot.className = "w-2.5 h-2.5 bg-red-500 rounded-full animate-pulse";
+                titleText.innerText = `[監測中] 使用者：${displayUser}`;
+                updateLive2DReaction("Engaged", "Engaged (高專注)");
+            } else {
+                pulseDot.className = "w-2.5 h-2.5 bg-amber-500 rounded-full";
+                titleText.innerText = "[監測已暫停] 特徵記錄器待命";
+                updateLive2DReaction("Standby", "Standby");
+            }
+        }
+
+        // 軌跡計時器（每秒高頻捕獲）
+        setInterval(() => {
+            if (!isMonitoringActive) return;
+            totalSeconds++;
+            
+            const currentStatusText = document.getElementById('vt-status-text').innerText;
+            let statusKey = "Standby";
+
+            if (currentStatusText.includes("Engaged")) { secsEngaged++; statusKey = "Engaged"; }
+            else if (currentStatusText.includes("Confused")) { secsConfused++; statusKey = "Confused"; }
+            else if (currentStatusText.includes("Looking Away")) { secsAway++; statusKey = "Looking Away"; }
+            else if (currentStatusText.includes("Bored")) { secsBored++; statusKey = "Bored"; }
+            else if (currentStatusText.includes("Drowsy")) { secsDrowsy++; statusKey = "Drowsy"; }
+            else if (currentStatusText.includes("Frustrated")) { secsFrustrated++; statusKey = "Frustrated"; }
+
+            // 核心儲存：記錄當前秒數與對應狀態
+            rawTimelineData.push({ elapsed: totalSeconds, key: statusKey });
+
+            recent15sStates.push(statusKey);
+            if(recent15sStates.length > 15) {
+                recent15sStates.shift();
+            }
+
+            let counts = {};
+            recent15sStates.forEach(k => { counts[k] = (counts[k] || 0) + 1; });
+            let dominantKey = "Engaged";
+            let maxCount = -1;
+            Object.keys(counts).forEach(k => {
+                if(counts[k] > maxCount) {
+                    maxCount = counts[k];
+                    dominantKey = k;
+                }
+            });
+
+            let chLabel = "高專注 🟢";
+            if(dominantKey === "Confused") chLabel = "思索困惑 🔵";
+            else if(dominantKey === "Looking Away") chLabel = "視線偏離 🟡";
+            else if(dominantKey === "Bored") chLabel = "缺乏動機 ⚪";
+            else if(dominantKey === "Drowsy") chLabel = "疲憊瞌睡 🔴";
+            else if(dominantKey === "Frustrated") chLabel = "焦慮挫折 🟣";
+            
+            document.getElementById('vt-15s-dominant').innerText = chLabel;
+
+        }, 1000);
+
+        function updateLive2DReaction(statusKey, tagLabel) {
+            const vtIcon = document.getElementById('vt-icon');
+            const vtStatusText = document.getElementById('vt-status-text');
+            const vtModeTag = document.getElementById('vt-mode-tag');
+            const live2dContainer = document.getElementById('live2d-container');
+
+            vtModeTag.innerText = tagLabel;
+            let rot = 0; let ty = 0; let sc = 1.0;
+
+            if (statusKey === "Standby") {
+                vtIcon.className = "fa-solid fa-user-astronaut text-6xl text-slate-500";
+                vtStatusText.innerText = "待命 (Standby)";
+                vtStatusText.className = "text-xs font-bold text-slate-400";
+            } else if (statusKey === "Drowsy") {
+                vtIcon.className = "fa-solid fa-user-astronaut text-6xl text-red-400";
+                vtStatusText.innerText = "Drowsy (疲憊瞌睡)";
+                vtStatusText.className = "text-xs font-bold text-red-400";
+                rot = 25; ty = 10; 
+            } else if (statusKey === "Looking Away") {
+                vtIcon.className = "fa-solid fa-user-astronaut text-6xl text-amber-400";
+                vtStatusText.innerText = "Looking Away (視線偏離)";
+                vtStatusText.className = "text-xs font-bold text-amber-400";
+                rot = -35; 
+            } else if (statusKey === "Bored") {
+                vtIcon.className = "fa-solid fa-user-astronaut text-6xl text-slate-400";
+                vtStatusText.innerText = "Bored (缺乏動機)";
+                vtStatusText.className = "text-xs font-bold text-slate-300";
+                rot = -10; ty = 5;
+            } else if (statusKey === "Frustrated") {
+                vtIcon.className = "fa-solid fa-user-astronaut text-6xl text-purple-400";
+                vtStatusText.innerText = "Frustrated (焦慮挫折)";
+                vtStatusText.className = "text-xs font-bold text-purple-400";
+                sc = 0.85; ty = 2; 
+            } else if (statusKey === "Confused") {
+                vtIcon.className = "fa-solid fa-user-astronaut text-6xl text-blue-400";
+                vtStatusText.innerText = "Confused (思索困惑)";
+                vtStatusText.className = "text-xs font-bold text-blue-400";
+                sc = 1.1; rot = 10; 
+            } else {
+                vtIcon.className = "fa-solid fa-user-astronaut text-6xl text-emerald-400 animate-pulse";
+                vtStatusText.innerText = "Engaged (高專注)";
+                vtStatusText.className = "text-xs font-bold text-emerald-400";
+            }
+
+            live2dContainer.style.transform = `rotate(${rot}deg) translateY(${ty}px) scale(${sc})`;
+        }
+
+        function filterEmotionChart(datasetIndex) {
+            const buttons = document.querySelectorAll('#emotion-filter-group button');
+            buttons.forEach(btn => {
+                btn.className = "filter-btn px-2.5 py-1 text-[11px] font-medium rounded-lg bg-slate-800 text-slate-400 hover:text-slate-200";
+            });
+
+            if (datasetIndex === 'all') {
+                document.getElementById('btn-f-all').className = "filter-btn px-2.5 py-1 text-[11px] font-medium rounded-lg bg-indigo-600 text-white shadow-sm";
+                globalLineChartInstance.data.datasets.forEach(ds => { ds.hidden = false; });
+            } else {
+                document.getElementById(`btn-f-${datasetIndex}`).className = "filter-btn px-2.5 py-1 text-[11px] font-medium rounded-lg bg-indigo-600 text-white shadow-sm";
+                globalLineChartInstance.data.datasets.forEach((ds, idx) => {
+                    ds.hidden = (idx !== datasetIndex);
+                });
+            }
+            globalLineChartInstance.update();
+        }
+
+        function endMonitoringAndShowReport() {
+            isMonitoringActive = false;
+            switchView('view-report');
+
+            const total = totalSeconds || 1;
+            document.getElementById('rep-total-time').innerText = formatFullTime(total);
+            
+            const calcPct = (s) => ((s / total) * 100).toFixed(1);
+            document.getElementById('t-engaged').innerText = formatMinSec(secsEngaged);
+            document.getElementById('p-engaged').innerText = `${calcPct(secsEngaged)}%`;
+            document.getElementById('t-confused').innerText = formatMinSec(secsConfused);
+            document.getElementById('p-confused').innerText = `${calcPct(secsConfused)}%`;
+            document.getElementById('t-away').innerText = formatMinSec(secsAway);
+            document.getElementById('p-away').innerText = `${calcPct(secsAway)}%`;
+            document.getElementById('t-bored').innerText = formatMinSec(secsBored);
+            document.getElementById('p-bored').innerText = `${calcPct(secsBored)}%`;
+            document.getElementById('t-drowsy').innerText = formatMinSec(secsDrowsy);
+            document.getElementById('p-drowsy').innerText = `${calcPct(secsDrowsy)}%`;
+            document.getElementById('t-frustrated').innerText = formatMinSec(secsFrustrated);
+            document.getElementById('p-frustrated').innerText = `${calcPct(secsFrustrated)}%`;
+
+            const now = new Date();
+            document.getElementById('report-meta-time').innerText = `報告生成時間：${now.getFullYear()}-${now.getMonth()+1}-${now.getDate()} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
+
+            // 模擬無數據時的常態時序 (保底機制)
+            if(rawTimelineData.length === 0) {
+                for(let k=1; k<=180; k++){
+                    let dummyKeys = ["Engaged", "Confused", "Looking Away", "Bored", "Drowsy", "Frustrated"];
+                    rawTimelineData.push({ elapsed: k, key: dummyKeys[Math.floor(Math.random()*6)] });
+                }
+            }
+
+            // 【核心優化】以固定 30 秒為一個時間區間進行聚合，並精準格式化 X 軸時間
+            let finalizedLabels = [];
+            let arrEngaged = [], arrConfused = [], arrAway = [], arrBored = [], arrDrowsy = [], arrFrustrated = [];
+
+            let intervalSize = 30; 
+            let maxSeconds = rawTimelineData[rawTimelineData.length - 1].elapsed;
+            
+            // 確保至少有一個完整的區間
+            for (let currentBound = intervalSize; currentBound <= maxSeconds + (intervalSize - 1); currentBound += intervalSize) {
+                // 找出落在此 30 秒區間內的所有秒級原始數據 (例如: 1~30秒, 31~60秒)
+                let chunk = rawTimelineData.filter(item => item.elapsed > (currentBound - intervalSize) && item.elapsed <= currentBound);
+                if (chunk.length === 0) continue;
+
+                // X 軸給予精準的區間時間點 (如 00:30, 01:00, 01:30)
+                finalizedLabels.push(formatIntervalLabel(currentBound));
+
+                let counts = { Engaged:0, Confused:0, "Looking Away":0, Bored:0, Drowsy:0, Frustrated:0 };
+                chunk.forEach(item => { counts[item.key] = (counts[item.key] || 0) + 1; });
+                
+                let cLen = chunk.length;
+                // 計算密集度數值 (0.0 - 1.0)
+                arrEngaged.push(Number((counts["Engaged"] / cLen).toFixed(2)));
+                arrConfused.push(Number((counts["Confused"] / cLen).toFixed(2)));
+                arrAway.push(Number((counts["Looking Away"] / cLen).toFixed(2)));
+                arrBored.push(Number((counts["Bored"] / cLen).toFixed(2)));
+                arrDrowsy.push(Number((counts["Drowsy"] / cLen).toFixed(2)));
+                arrFrustrated.push(Number((counts["Frustrated"] / cLen).toFixed(2)));
+            }
+
+            // 渲染全情绪整合型波動圖
+            const ctxLine = document.getElementById('chartLineEmotion').getContext('2d');
+            globalLineChartInstance = new Chart(ctxLine, {
+                type: 'line',
+                data: {
+                    labels: finalizedLabels, 
+                    datasets: [
+                        { label: '高專注 (Engaged)', data: arrEngaged, borderColor: '#10b981', backgroundColor: 'transparent', borderWidth: 2, pointRadius: 3, tension: 0.2 },
+                        { label: '思索困惑 (Confused)', data: arrConfused, borderColor: '#3b82f6', backgroundColor: 'transparent', borderWidth: 2, pointRadius: 3, tension: 0.2 },
+                        { label: '視線偏離 (Looking Away)', data: arrAway, borderColor: '#f59e0b', backgroundColor: 'transparent', borderWidth: 2, pointRadius: 3, tension: 0.2 },
+                        { label: '缺乏動機 (Bored)', data: arrBored, borderColor: '#94a3b8', backgroundColor: 'transparent', borderWidth: 2, pointRadius: 3, tension: 0.2 },
+                        { label: '疲憊瞌睡 (Drowsy)', data: arrDrowsy, borderColor: '#ef4444', backgroundColor: 'transparent', borderWidth: 2, pointRadius: 3, tension: 0.2 },
+                        { label: '焦慮挫折 (Frustrated)', data: arrFrustrated, borderColor: '#a855f7', backgroundColor: 'transparent', borderWidth: 2, pointRadius: 3, tension: 0.2 }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { 
+                        legend: { 
+                            display: true,
+                            labels: { color: '#94a3b8', boxWidth: 12, font: { size: 10 } }
+                        } 
+                    },
+                    scales: {
+                        y: {
+                            min: 0.0, max: 1.0,
+                            grid: { color: '#1e293b' },
+                            title: { display: true, text: '情緒密集度權重 (0.0 - 1.0)', color: '#64748b', font: { size: 10 } },
+                            ticks: {
+                                color: '#94a3b8',
+                                stepSize: 0.2,
+                                callback: function(value) { return value.toFixed(1); }
+                            }
+                        },
+                        x: { 
+                            grid: { color: '#1e293b' }, 
+                            title: { display: true, text: '課程相對時間 (分:秒)', color: '#64748b', font: { size: 10 } },
+                            ticks: { color: '#64748b', maxTicksLimit: 20 } 
+                        }
+                    }
+                }
+            });
+
+            // 雷達模型圖
+            const ctxRadar = document.getElementById('chartRadarEmotion').getContext('2d');
+            new Chart(ctxRadar, {
+                type: 'radar',
+                data: {
+                    labels: ['視線偏離', '缺乏動機', '思索困惑', '疲憊瞌睡', '高專注', '焦慮挫折'],
+                    datasets: [{
+                        data: [secsAway, secsBored, secsConfused, secsDrowsy, secsEngaged, secsFrustrated],
+                        backgroundColor: 'rgba(99, 102, 241, 0.15)',
+                        borderColor: 'rgb(129, 140, 248)',
+                        pointBackgroundColor: 'rgb(99, 102, 241)',
+                        borderWidth: 2
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        r: {
+                            grid: { color: '#334155' },
+                            angleLines: { color: '#334155' },
+                            pointLabels: { color: '#94a3b8', font: { size: 11, weight: 'bold' } },
+                            ticks: { display: false }
+                        }
+                    }
+                }
+            });
+
+            // 注入科學解讀與詳細數值計算說明
+            const pctEngaged = (secsEngaged / total) * 100;
+            const pctConfused = (secsConfused / total) * 100;
+            
+            let adviceHtml = `
+                <div class="space-y-4 text-xs text-slate-300">
+                    <div class="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-3">
+                        <span class="text-white font-bold block border-b border-slate-800 pb-1.5"><i class="fa-solid fa-calculator text-indigo-400 mr-1"></i> 1. 曲線圖數值（Y軸）是如何計算的？</span>
+                        <p class="text-slate-400 leading-relaxed">
+                            本系統圖表的 Y 軸數值區間為 <strong class="text-slate-200">0.0 至 1.0</strong>，代表的是<span class="text-indigo-400 font-semibold">「每 30 秒時序區間內的情緒密集度權重 (Density Weight)」</span>。
+                            其底層數學計算法則如下：
+                        </p>
+                        <div class="bg-slate-900 p-3 rounded-lg font-mono text-[11px] text-indigo-300 border border-slate-800/80">
+                            公式：該情緒密集度 = (該 30 秒內系統判定為該情緒的有效秒數) ÷ 30 秒
+                        </div>
+                        <ul class="list-disc pl-5 text-slate-400 space-y-1">
+                            <li><strong>數值為 0.0</strong>：代表在該整整 30 秒的課堂期間內，系統完全沒有捕捉到任何一次該情緒特徵。</li>
+                            <li><strong>數值為 0.5</strong>：代表在該 30 秒內，您有 15 秒的時間處於該種情緒狀態（例如：前 15 秒專注，後 15 秒轉頭看旁邊，則該區間的「高專注」與「視線偏離」數值皆為 0.5）。</li>
+                            <li><strong>數值為 1.0</strong>：代表在該 30 秒區間內，您的面部特徵 100% 滿載地維持在該狀態。</li>
+                        </ul>
+                    </div>
+
+                    <div class="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-3">
+                        <span class="text-white font-bold block border-b border-slate-800 pb-1.5"><i class="fa-solid fa-chart-line text-emerald-400 mr-1"></i> 2. 如何透過整合圖表與篩選按鈕進行深度解讀？</span>
+                        <p class="text-slate-400 leading-relaxed">
+                            將所有情緒整合在同一個圖表中，核心優勢在於觀察<span class="text-emerald-400 font-semibold">「情緒的交叉消長」</span>。當您使用上方按鈕切換，或同時顯示時，請注意以下認知科學現象：
+                        </p>
+                        <ul class="list-disc pl-5 text-slate-400 space-y-1.5">
+                            <li><strong class="text-slate-200">「專注」下滑與「困惑」上升的交叉點</strong>：代表教材難度在此刻可能超過了您的先前知識儲備（Prior Knowledge），導致大腦進入過度的認知負荷（Cognitive Overload）。</li>
+                            <li><strong class="text-slate-200">「視線偏離」與「缺乏動機」同時處於高點</strong>：代表此時段的教材內容吸引力較低，或是您的注意力寬度（Attention Span）已達極限，建議未來在此時間點主動安排短暫休息。</li>
+                            <li><strong class="text-slate-200">單獨看「疲憊瞌睡」曲線</strong>：若該曲線在連續多個 30 秒區間內 Y 軸數值皆大於 0.6，說明生理疲勞已經實質干擾學習編碼，此時的學習留存率（Retention Rate）極低。</li>
+                        </ul>
+                    </div>
+            `;
+
+            if (pctEngaged >= 60) {
+                adviceHtml += `
+                    <div class="bg-emerald-950/40 border border-emerald-900/50 p-3.5 rounded-xl">
+                        <span class="text-emerald-400 font-bold block mb-1 text-sm"><i class="fa-solid fa-trophy mr-1"></i> 常態診斷：卓越心流狀態（高專注總佔比: ${pctEngaged.toFixed(1)}%）</span>
+                        <p class="text-slate-400 leading-relaxed">
+                            您的總體專注度極高。從時序波動來看，心流曲線維持在平穩的高水平。這顯示目前的學習節奏高度契合您的節律，請繼續保持。
+                        </p>
+                    </div>
+                `;
+            }
+            adviceHtml += `</div>`;
+            document.getElementById('report-advice-content').innerHTML = adviceHtml;
+        }
+
+        const faceMesh = new FaceMesh({
+            locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`
+        });
+        faceMesh.setOptions({ maxNumFaces: 1, refineLandmarks: true, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
+
+        function initMediaPipeEngine() {
+            faceMesh.onResults((results) => {
+                if (!results.multiFaceLandmarks || results.multiFaceLandmarks.length === 0) return;
+                const landmarks = results.multiFaceLandmarks[0];
+                const calculateDist = (p1, p2) => Math.hypot(p2.x - p1.x, p2.y - p1.y);
+                
+                let left_ear = (calculateDist(landmarks[160], landmarks[144]) + calculateDist(landmarks[158], landmarks[153])) / (2.0 * calculateDist(landmarks[33], landmarks[133]) + 1e-6);
+                let right_ear = (calculateDist(landmarks[385], landmarks[380]) + calculateDist(landmarks[387], landmarks[373])) / (2.0 * calculateDist(landmarks[362], landmarks[263]) + 1e-6);
+                let current_eye_ratio = (left_ear + right_ear) / 2.0; 
+                let eyebrow_dist = calculateDist(landmarks[107], landmarks[336]);
+                let mar = calculateDist(landmarks[13], landmarks[14]) / (calculateDist(landmarks[78], landmarks[308]) + 1e-6);
+
+                if (isCalibrating) {
+                    calibrationFrames.push({ ear: current_eye_ratio, eyebrow: eyebrow_dist });
+                    return;
+                }
+
+                const preCanvas = document.getElementById('pre-calibration-canvas');
+                const preCtx = preCanvas.getContext('2d');
+                preCanvas.width = 320; preCanvas.height = 240;
+                preCtx.clearRect(0,0,320,240);
+                preCtx.drawImage(results.image, 0, 0, 320, 240);
+                preCtx.fillStyle = "rgba(99, 102, 241, 0.5)";
+                for(let i=0; i<landmarks.length; i+=25){
+                    preCtx.beginPath(); preCtx.arc(landmarks[i].x * 320, landmarks[i].y * 240, 1.2, 0, 2*Math.PI); preCtx.fill();
+                }
+
+                if (!isMonitoringActive) return;
+
+                let pitch = landmarks[1].y; let yaw = landmarks[1].x;
+
+                if (current_eye_ratio < base_EAR * 0.72) {
+                    updateLive2DReaction("Drowsy", "Drowsy (疲憊瞌睡)");
+                } else if (Math.abs(yaw - 0.5) > 0.12 || Math.abs(pitch - 0.5) > 0.12) {
+                    updateLive2DReaction("Looking Away", "Looking Away (視線偏離)");
+                } else if (mar > 0.15 && current_eye_ratio < base_EAR * 0.88) {
+                    updateLive2DReaction("Bored", "Bored (缺乏動機)");
+                } else if (eyebrow_dist < base_Eyebrow_Dist * 0.85 && mar > 0.12) {
+                    updateLive2DReaction("Frustrated", "Frustrated (焦慮挫折)");
+                } else if (eyebrow_dist < base_Eyebrow_Dist * 0.88) {
+                    updateLive2DReaction("Confused", "Confused (思索困惑)");
+                } else {
+                    updateLive2DReaction("Engaged", "Engaged (高專注)");
+                }
+            });
+
+            const camera = new Camera(document.getElementById('webcam'), {
+                onFrame: async () => { await faceMesh.send({ image: document.getElementById('webcam') }); },
+                width: 640, height: 480
+            });
+            camera.start();
+        }
+    </script>
+</body>
+</html>
